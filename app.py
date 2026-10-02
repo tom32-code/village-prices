@@ -1,3 +1,4 @@
+import difflib
 import io
 import os
 import re
@@ -18,12 +19,8 @@ SKIP_WORDS = ("итог", "сдача", "налич", "ндс", "карта", "�
               "касс", "чек", "оплата", "всего", "электрон", "получен")
 STOP_WORDS = ("итог", "электрон", "получено", "картой", "наличными")
 
-# начало позиции: "12.Название"
 ITEM_START = re.compile(r"^\s*(\d{1,3})\s*([.)\-])\s*(?=[^\W\d_])")
-# "1.000X135.00=135.00" (допускаем потерянную точку/цифру и русскую Х)
 QTY_X = re.compile(r"(\d*[.,]?\d{3})\s*[xXхХ×]\s*(\d+[.,]\d{1,2})(?:\s*=\s*(\d+[.,]\d{1,2}))?")
-CODE_RE = re.compile(r"\(\s*\d+\s*\)")
-# запасной разбор: "Название ..... 123.45"
 SIMPLE_RE = re.compile(r"^(.*?)[\s.\-–—:=*]*(\d{1,5}[.,]\d{2})\s*(?:[рР₽]|руб\.?)?\s*$")
 
 
@@ -57,48 +54,64 @@ def to_float(s):
 
 def is_suspicious(name):
     n = name.strip().lower()
-    words = re.findall(r"[a-zа-яё]+", n)
+    words = re.findall(r"[a-zа-яёіїєґ0-9]+", n)
     if n in VAGUE or not any(len(w) >= 3 for w in words):
         return True
-    # слово из смеси латиницы и кириллицы - признак ошибки распознавания
-    return any(re.search(r"[a-z]", w) and re.search(r"[а-яё]", w) for w in words)
+    if re.search(r"[іїєґ]", n):
+        return True
+    return any((re.search(r"[a-z]", w) and re.search(r"[а-яё]", w))
+               or re.search(r"[а-яё][0-9]$", w) for w in words)
 
 
 def clean_name(s):
     s = s.replace("ТОВАР", " ")
-    s = re.sub(r"[-=_]{3,}", " ", s)
-    s = CODE_RE.sub(" ", s)
-    s = re.sub(r"\.{2,}", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    s = re.sub(r"^\d{1,3}\s*[.)\-]\s*(?=\D)", "", s)
-    return s.strip(" .,:;-–—=_*\\/|")
+    s = re.sub(r"[-=_]{3,}|\.{2,}|\(\s*\d+\s*\)", " ", s)
+    starts = list(re.finditer(r"(?<![\d.,])(\d{1,3})\s*[.)]\s*(?=[^\W\d_])", s))
+    if starts:
+        s = s[starts[-1].end():]
+    s = re.sub(r"^\s*\d+[.,]\d{2}\s+", "", s)
+    return re.sub(r"\s+", " ", s).strip(" .,:;-–—=_*\\/|")
+
+
+def known_names():
+    with db() as c:
+        a = [r[0] for r in c.execute("SELECT DISTINCT fixed FROM aliases")]
+        b = [r[0] for r in c.execute("SELECT DISTINCT name FROM items")]
+    return sorted(set(a + b))
+
+
+def find_total(text):
+    m = re.search(r"итог[^\d\n]{0,15}(\d{2,}[.,]\d{2})", text, re.I)
+    return to_float(m.group(1)) if m else None
 
 
 def parse_numbered(text):
-    """Чеки формата '1.Название ... 1.000X135.00=135.00'. Название может быть на 2 строках."""
     lines, started = [], False
     for line in text.replace("\r", "").split("\n"):
         line = line.strip()
         if not line or re.fullmatch(r"[\s=\-_.]+", line):
             continue
-        low = line.lower()
-        if started and any(w in low for w in STOP_WORDS):
+        if started and any(w in line.lower() for w in STOP_WORDS):
             break
-        if not started:
-            if not ITEM_START.match(line):
-                continue
-            started = True
+        if not started and not ITEM_START.match(line):
+            continue
+        started = True
         lines.append(line)
-    body = " ".join(lines)
-    out, pos = [], 0
+    body, out, pos = " ".join(lines), [], 0
     for m in QTY_X.finditer(body):
         head = body[pos:m.start()]
         pos = m.end()
-        name = clean_name(head)
+        total = m.group(3)
+        if not total:
+            t = re.match(r"\s*[=\-–—:~]?\s*(\d+[.,]\d{2})(?!\d)", body[pos:])
+            if t:
+                total, pos = t.group(1), pos + t.end()
         price = to_float(m.group(2))
+        total = to_float(total) if total else None
+        qty = round(total / price, 3) if total and price else (to_float(m.group(1)) or 1.0)
+        name = clean_name(head)
         if name and price > 0:
-            glued = bool(re.search(r"ТОВАР(?=[а-яё])", head))
-            out.append((name, price, glued))
+            out.append((name, price, bool(re.search(r"ТОВАР(?=[а-яё])", head)), qty, total))
     return out
 
 
@@ -120,15 +133,19 @@ def parse_simple(text):
 def parse_receipt(text):
     with db() as c:
         aliases = {r["raw"]: r["fixed"] for r in c.execute("SELECT * FROM aliases")}
-    rows = parse_numbered(text)
-    if not rows:
-        rows = [(n, p, False) for n, p in parse_simple(text)]
+    low = {k.lower(): k for k in known_names()}
+    rows = parse_numbered(text) or [(n, p, False, 1.0, p) for n, p in parse_simple(text)]
     out = []
-    for raw, price, bad in rows:
-        key = raw.lower()
-        known = key in aliases
-        out.append({"raw": raw, "name": aliases.get(key, raw), "price": price,
-                    "suspicious": (not known) and (bad or is_suspicious(raw))})
+    for raw, price, bad, qty, total in rows:
+        key, name, sure = raw.lower(), raw, False
+        if key in aliases:
+            name, sure = aliases[key], True
+        else:
+            near = difflib.get_close_matches(key, list(low), 1, 0.82)
+            if near:
+                name, sure = low[near[0]], True
+        out.append({"raw": raw, "name": name, "price": price, "qty": qty, "known": sure,
+                    "suspicious": (not sure) and (bad or is_suspicious(raw))})
     return out
 
 
@@ -179,7 +196,7 @@ def ocr():
             "https://api.ocr.space/parse/image",
             files={"file": (f.filename or "receipt.jpg", f.stream, f.mimetype or "image/jpeg")},
             data={"apikey": OCR_KEY, "language": "rus", "isTable": "true",
-                  "OCREngine": "1", "scale": "true"},
+                  "OCREngine": "1", "detectOrientation": "true", "scale": "true"},
             timeout=60,
         )
         j = r.json()
@@ -190,7 +207,14 @@ def ocr():
         msg = msg[0] if isinstance(msg, list) and msg else (msg or "Ошибка OCR")
         return jsonify(error=str(msg)), 502
     text = "\n".join(p.get("ParsedText", "") for p in j.get("ParsedResults", []))
-    return jsonify(lines=parse_receipt(text), text=text)
+    return jsonify(lines=parse_receipt(text), text=text, total=find_total(text))
+
+
+@app.get("/api/names")
+def api_names():
+    with db() as c:
+        stores = [r[0] for r in c.execute("SELECT DISTINCT store FROM items ORDER BY store")]
+    return jsonify(names=known_names(), stores=stores)
 
 
 @app.post("/api/items")
