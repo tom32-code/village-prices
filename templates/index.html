@@ -300,10 +300,27 @@ async function loadList() {
 }
 $("q").oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadList, 300); };
 
-// ---- PWA ----
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+// ---- улучшенное сжатие для длинных чеков ----
+async function compress(file) {
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("Не удалось открыть фото"));
+    i.src = URL.createObjectURL(file);
+  });
+  let max = 2800, q = 0.85;
+  for (let n = 0; n < 6; n++) {
+    const k = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * k);
+    c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", q));
+    if (blob && blob.size < 950000) return blob;
+    max = Math.round(max * 0.85);
+    q = Math.max(0.5, q - 0.08);
+  }
+  throw new Error("Фото слишком большое, попробуйте переснять ближе");
 }
-</script>
-</body>
-</html>
+// камера: без capture Chrome сам предложит «Камера» или «Файлы»
+document.getElementById("fileCam").removeAttribute("capture");
