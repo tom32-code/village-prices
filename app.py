@@ -12,11 +12,19 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE, "prices.db")
 OCR_KEY = os.environ.get("OCR_API_KEY", "")
 
-# Строка чека: "Название ..... 123.45"
-PRICE_RE = re.compile(r"^(.*?)[\s.\-–—:=*]*(\d{1,5}[.,]\d{2})\s*(?:[рР₽]|руб\.?)?\s*$")
-SKIP_WORDS = ("итог", "сдача", "налич", "ндс", "карта", "сумма", "скидк", "касс", "чек", "оплата", "всего")
 VAGUE = {"продукты", "продукт", "товар", "товары", "бакалея", "разное", "прочее",
          "овощи", "фрукты", "напитки", "хозтовары", "item", "food", "goods"}
+SKIP_WORDS = ("итог", "сдача", "налич", "ндс", "карта", "картой", "сумма", "скидк",
+              "касс", "чек", "оплата", "всего", "электрон", "получен")
+STOP_WORDS = ("итог", "электрон", "получено", "картой", "наличными")
+
+# начало позиции: "12.Название"
+ITEM_START = re.compile(r"^\s*(\d{1,3})\s*([.)\-])\s*(?=[^\W\d_])")
+# "1.000X135.00=135.00" (допускаем потерянную точку/цифру и русскую Х)
+QTY_X = re.compile(r"(\d*[.,]?\d{3})\s*[xXхХ×]\s*(\d+[.,]\d{1,2})(?:\s*=\s*(\d+[.,]\d{1,2}))?")
+CODE_RE = re.compile(r"\(\s*\d+\s*\)")
+# запасной разбор: "Название ..... 123.45"
+SIMPLE_RE = re.compile(r"^(.*?)[\s.\-–—:=*]*(\d{1,5}[.,]\d{2})\s*(?:[рР₽]|руб\.?)?\s*$")
 
 
 def db():
@@ -43,30 +51,84 @@ def init_db():
 init_db()
 
 
+def to_float(s):
+    return float(s.replace(",", "."))
+
+
 def is_suspicious(name):
     n = name.strip().lower()
-    letters = re.findall(r"[a-zа-яё]", n)
-    return len(letters) < 3 or n in VAGUE or len(letters) / max(len(n), 1) < 0.5
+    words = re.findall(r"[a-zа-яё]+", n)
+    if n in VAGUE or not any(len(w) >= 3 for w in words):
+        return True
+    # слово из смеси латиницы и кириллицы - признак ошибки распознавания
+    return any(re.search(r"[a-z]", w) and re.search(r"[а-яё]", w) for w in words)
 
 
-def parse_receipt(text):
+def clean_name(s):
+    s = s.replace("ТОВАР", " ")
+    s = re.sub(r"[-=_]{3,}", " ", s)
+    s = CODE_RE.sub(" ", s)
+    s = re.sub(r"\.{2,}", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"^\d{1,3}\s*[.)\-]\s*(?=\D)", "", s)
+    return s.strip(" .,:;-–—=_*\\/|")
+
+
+def parse_numbered(text):
+    """Чеки формата '1.Название ... 1.000X135.00=135.00'. Название может быть на 2 строках."""
+    lines, started = [], False
+    for line in text.replace("\r", "").split("\n"):
+        line = line.strip()
+        if not line or re.fullmatch(r"[\s=\-_.]+", line):
+            continue
+        low = line.lower()
+        if started and any(w in low for w in STOP_WORDS):
+            break
+        if not started:
+            if not ITEM_START.match(line):
+                continue
+            started = True
+        lines.append(line)
+    body = " ".join(lines)
+    out, pos = [], 0
+    for m in QTY_X.finditer(body):
+        head = body[pos:m.start()]
+        pos = m.end()
+        name = clean_name(head)
+        price = to_float(m.group(2))
+        if name and price > 0:
+            glued = bool(re.search(r"ТОВАР(?=[а-яё])", head))
+            out.append((name, price, glued))
+    return out
+
+
+def parse_simple(text):
     out = []
-    with db() as c:
-        aliases = {r["raw"]: r["fixed"] for r in c.execute("SELECT * FROM aliases")}
     for line in text.replace("\r", "").split("\n"):
         line = line.strip()
         if not line or any(w in line.lower() for w in SKIP_WORDS):
             continue
-        m = PRICE_RE.match(line)
+        m = SIMPLE_RE.match(line)
         if not m:
             continue
         raw = m.group(1).strip(" .-–—:*")
-        price = float(m.group(2).replace(",", "."))
-        if not raw:
-            continue
-        name = aliases.get(raw.lower(), raw)
-        out.append({"raw": raw, "name": name, "price": price,
-                    "suspicious": raw.lower() not in aliases and is_suspicious(raw)})
+        if raw:
+            out.append((raw, to_float(m.group(2))))
+    return out
+
+
+def parse_receipt(text):
+    with db() as c:
+        aliases = {r["raw"]: r["fixed"] for r in c.execute("SELECT * FROM aliases")}
+    rows = parse_numbered(text)
+    if not rows:
+        rows = [(n, p, False) for n, p in parse_simple(text)]
+    out = []
+    for raw, price, bad in rows:
+        key = raw.lower()
+        known = key in aliases
+        out.append({"raw": raw, "name": aliases.get(key, raw), "price": price,
+                    "suspicious": (not known) and (bad or is_suspicious(raw))})
     return out
 
 
