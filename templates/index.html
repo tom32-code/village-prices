@@ -9,89 +9,114 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Цены в магазинах</title>
 <style>
-  :root { --g:#2e7d32; --bg:#f4f6f4; --card:#fff; --red:#d32f2f; --tx:#1c1c1c; }
+  :root { --g:#2e7d32; --bg:#f1f4f1; --card:#fff; --red:#d32f2f; --tx:#1c1c1c; --mut:#6b6b6b; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#121412; --card:#1e221e; --tx:#eee; }
+    :root { --bg:#0f120f; --card:#1c211c; --tx:#eee; --mut:#a0a8a0; }
   }
-  * { box-sizing:border-box; }
-  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--tx);
-         padding-bottom:env(safe-area-inset-bottom); }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; font-family:system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--tx);
+         padding-bottom:calc(80px + env(safe-area-inset-bottom)); }
   header { background:var(--g); color:#fff; padding:calc(14px + env(safe-area-inset-top)) 16px 14px;
-           font-size:20px; font-weight:600; }
-  nav { display:flex; background:var(--card); position:sticky; top:0; box-shadow:0 1px 4px #0002; }
-  nav button { flex:1; padding:14px; border:0; background:none; color:var(--tx); font-size:16px;
-               border-bottom:3px solid transparent; }
-  nav button.on { border-color:var(--g); color:var(--g); font-weight:600; }
+           font-size:20px; font-weight:700; }
   main { padding:12px; max-width:640px; margin:auto; }
-  .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px;
-          box-shadow:0 1px 4px #0002; }
+
+  .card { background:var(--card); border-radius:16px; padding:14px; margin-bottom:12px;
+          box-shadow:0 1px 5px #0002; }
+  .card h2 { margin:0 0 10px; font-size:18px; }
+
   input[type=text], input[type=number], input[type=search] {
-    width:100%; padding:12px; font-size:16px; border:1px solid #8886; border-radius:10px;
-    background:transparent; color:var(--tx); }
-  .btn { display:block; width:100%; padding:14px; margin-top:10px; border:0; border-radius:12px;
-         background:var(--g); color:#fff; font-size:17px; font-weight:600; }
-  .btn.alt { background:#607d8b; }
-  .row { display:flex; gap:8px; margin-bottom:8px; align-items:center; }
-  .row .name { flex:2; } .row .price { flex:1; }
-  .row .x { border:0; background:none; font-size:22px; color:var(--red); padding:4px 8px; }
-  .bad { border:2px solid var(--red) !important; background:#d32f2f18 !important; }
-  .hint { color:var(--red); font-size:13px; margin:4px 0 10px; }
-  .msg { padding:10px; border-radius:10px; margin:8px 0; background:#2e7d3222; }
-  .msg.err { background:#d32f2f22; }
-  .grp h3 { margin:0 0 6px; font-size:17px; }
-  .grp .line { display:flex; justify-content:space-between; padding:3px 0; font-size:15px; }
-  .grp .best { color:var(--g); font-weight:700; }
-  .hidden { display:none; }
-  .small { font-size:13px; opacity:.7; }
+    width:100%; height:50px; padding:0 14px; font-size:16px; border:1.5px solid #8885;
+    border-radius:12px; background:transparent; color:var(--tx); outline:none; }
+  input:focus { border-color:var(--g); }
+
+  .btn { display:flex; align-items:center; justify-content:center; width:100%; min-height:56px;
+         margin-top:10px; border:0; border-radius:14px; background:var(--g); color:#fff;
+         font-size:17px; font-weight:600; text-align:center; cursor:pointer; padding:10px; }
+  .btn.alt { background:#546e7a; }
+  .btn.ghost { background:transparent; color:var(--g); border:2px solid var(--g); }
+  .btn:active { opacity:.8; }
+
+  /* поля выбора файла: невидимые, но не display:none */
+  .pick { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; clip:rect(0,0,0,0); }
+
+  .item { border:1.5px solid #8884; border-radius:14px; padding:10px; margin-bottom:10px; }
+  .item .top { display:flex; gap:8px; }
+  .item .top input { flex:1; }
+  .item .bot { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .item .bot input { flex:1; }
+  .item .cur { font-size:18px; color:var(--mut); }
+  .x { width:50px; height:50px; border:0; border-radius:12px; background:#d32f2f22;
+       color:var(--red); font-size:22px; flex:none; }
+  .item.bad { border-color:var(--red); background:#d32f2f14; }
+  .item.bad input.name { border-color:var(--red); }
+  .hint { color:var(--red); font-size:14px; margin:0 0 10px; }
+
+  .msg { padding:12px; border-radius:12px; margin-top:10px; background:#2e7d3226; font-size:15px; }
+  .msg.err { background:#d32f2f26; }
+
+  .grp h3 { margin:0 0 8px; font-size:18px; }
+  .line { display:flex; justify-content:space-between; align-items:center; padding:8px 0;
+          border-top:1px solid #8883; font-size:16px; gap:8px; }
+  .line .who { flex:1; }
+  .line .who small { display:block; color:var(--mut); font-size:12px; }
+  .line .pr { font-weight:600; white-space:nowrap; }
+  .line.best .pr { color:var(--g); font-size:18px; }
+  .line .del { border:0; background:none; color:var(--mut); font-size:18px; padding:6px 10px; }
+  .empty { text-align:center; color:var(--mut); padding:24px 10px; }
+
+  .hidden { display:none !important; }
+
+  nav { position:fixed; left:0; right:0; bottom:0; display:flex; background:var(--card);
+        box-shadow:0 -2px 8px #0003; padding-bottom:env(safe-area-inset-bottom); z-index:5; }
+  nav button { flex:1; height:64px; border:0; background:none; color:var(--mut); font-size:13px;
+               display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; }
+  nav button span { font-size:24px; }
+  nav button.on { color:var(--g); font-weight:700; }
 </style>
 </head>
 <body>
 <header>🛒 Цены в магазинах</header>
-<nav>
-  <button id="t1" class="on">Сканировать чек</button>
-  <button id="t2">Сравнение цен</button>
-</nav>
 
 <main>
   <section id="p1">
     <div class="card">
-      <input type="text" id="store" placeholder="Название магазина (например, «У Ивановны»)">
-      <input type="file" id="file" accept="image/*" capture="environment" class="hidden">
-      <button class="btn" id="cam">📷 Сфотографировать чек</button>
-      <button class="btn alt" id="pick">🖼 Выбрать фото из галереи</button>
+      <h2>1. Магазин</h2>
+      <input type="text" id="store" placeholder="Например: «У Ивановны»" autocomplete="off">
+    </div>
+
+    <div class="card">
+      <h2>2. Чек</h2>
+      <label class="btn" for="fileCam">📷 Сфотографировать чек</label>
+      <input type="file" id="fileCam" class="pick" accept="image/*" capture="environment">
+      <label class="btn alt" for="fileGal">🖼 Выбрать фото из галереи</label>
+      <input type="file" id="fileGal" class="pick" accept="image/*">
       <div id="status"></div>
     </div>
 
     <div class="card hidden" id="review">
-      <b>Распознанные товары</b>
-      <div class="hint" id="hint"></div>
+      <h2>3. Проверьте товары</h2>
+      <p class="hint" id="hint"></p>
       <div id="rows"></div>
-      <button class="btn alt" id="add">+ Добавить строку</button>
-      <button class="btn" id="save">💾 Сохранить в базу</button>
+      <button class="btn ghost" id="add" type="button">＋ Добавить строку</button>
+      <button class="btn" id="save" type="button">💾 Сохранить в базу</button>
     </div>
   </section>
 
   <section id="p2" class="hidden">
-    <div class="card"><input type="search" id="q" placeholder="Поиск товара…"></div>
+    <div class="card"><input type="search" id="q" placeholder="🔍 Поиск товара…"></div>
     <div id="list"></div>
   </section>
 </main>
 
+<nav>
+  <button id="t1" class="on" type="button"><span>📷</span>Чек</button>
+  <button id="t2" type="button"><span>📊</span>Сравнение</button>
+</nav>
+
 <script>
 const $ = (id) => document.getElementById(id);
 
-// ---- вкладки ----
-function tab(n) {
-  $("p1").classList.toggle("hidden", n !== 1);
-  $("p2").classList.toggle("hidden", n !== 2);
-  $("t1").classList.toggle("on", n === 1);
-  $("t2").classList.toggle("on", n === 2);
-  if (n === 2) loadList();
-}
-$("t1").onclick = () => tab(1);
-$("t2").onclick = () => tab(2);
-
-// ---- сообщения ----
 function say(text, err) {
   const s = $("status");
   s.textContent = "";
@@ -101,8 +126,22 @@ function say(text, err) {
   d.textContent = text;
   s.appendChild(d);
 }
+window.addEventListener("error", (e) => say("Ошибка: " + e.message, true));
+window.addEventListener("unhandledrejection", (e) => say("Ошибка: " + (e.reason && e.reason.message || e.reason), true));
 
-// ---- фото -> сжатие (бесплатный OCR принимает файлы до ~1 МБ) ----
+// ---- вкладки ----
+function tab(n) {
+  $("p1").classList.toggle("hidden", n !== 1);
+  $("p2").classList.toggle("hidden", n !== 2);
+  $("t1").classList.toggle("on", n === 1);
+  $("t2").classList.toggle("on", n === 2);
+  window.scrollTo(0, 0);
+  if (n === 2) loadList();
+}
+$("t1").onclick = () => tab(1);
+$("t2").onclick = () => tab(2);
+
+// ---- сжатие фото (бесплатный OCR принимает файлы до ~1 МБ) ----
 function compress(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -120,74 +159,95 @@ function compress(file) {
   });
 }
 
-$("cam").onclick = () => { $("file").setAttribute("capture", "environment"); $("file").click(); };
-$("pick").onclick = () => { $("file").removeAttribute("capture"); $("file").click(); };
-
-$("file").onchange = async (e) => {
+async function handleFile(e) {
   const f = e.target.files[0];
   if (!f) return;
-  say("⏳ Распознаю чек… (может занять до минуты)");
+  say("⏳ Распознаю чек… (до минуты, если сервер просыпался)");
   try {
     const blob = await compress(f);
     const fd = new FormData();
     fd.append("image", blob, "receipt.jpg");
     const r = await fetch("/api/ocr", { method: "POST", body: fd });
     const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "Ошибка");
+    if (!r.ok) throw new Error(j.error || "Ошибка сервера");
     $("rows").textContent = "";
     j.lines.forEach(addRow);
     $("review").classList.remove("hidden");
     updateHint();
-    say(j.lines.length ? `Найдено строк: ${j.lines.length}` : "Не нашли строки с ценами. Добавьте вручную или переснимите.", !j.lines.length);
+    say(j.lines.length ? "Найдено строк: " + j.lines.length
+                       : "Строки с ценами не найдены. Добавьте вручную или переснимите.", !j.lines.length);
+    $("review").scrollIntoView({ behavior: "smooth" });
   } catch (err) {
     say("❌ " + err.message, true);
   }
   e.target.value = "";
-};
+}
+$("fileCam").addEventListener("change", handleFile);
+$("fileGal").addEventListener("change", handleFile);
 
-// ---- редактирование строк ----
+// ---- строки чека ----
 function addRow(it) {
   it = it || { raw: "", name: "", price: "", suspicious: false };
   const row = document.createElement("div");
-  row.className = "row";
+  row.className = "item" + (it.suspicious ? " bad" : "");
   row.dataset.raw = it.raw || "";
+
   const name = document.createElement("input");
-  name.type = "text"; name.className = "name"; name.value = it.name || "";
-  name.placeholder = "Название";
-  const price = document.createElement("input");
-  price.type = "number"; price.step = "0.01"; price.className = "price";
-  price.value = it.price; price.placeholder = "Цена";
+  name.type = "text"; name.className = "name"; name.placeholder = "Название товара";
+  name.value = it.name || "";
+  name.oninput = () => { row.classList.remove("bad"); updateHint(); };
+
   const x = document.createElement("button");
-  x.className = "x"; x.textContent = "✕";
+  x.type = "button"; x.className = "x"; x.textContent = "✕";
   x.onclick = () => { row.remove(); updateHint(); };
-  if (it.suspicious) name.classList.add("bad");
-  name.oninput = () => { name.classList.remove("bad"); updateHint(); };
-  row.append(name, price, x);
+
+  const top = document.createElement("div");
+  top.className = "top";
+  top.append(name, x);
+
+  const price = document.createElement("input");
+  price.type = "number"; price.step = "0.01"; price.inputMode = "decimal";
+  price.className = "price"; price.placeholder = "Цена"; price.value = it.price;
+
+  const cur = document.createElement("span");
+  cur.className = "cur"; cur.textContent = "₽";
+
+  const bot = document.createElement("div");
+  bot.className = "bot";
+  bot.append(price, cur);
+
+  row.append(top, bot);
   $("rows").appendChild(row);
 }
 $("add").onclick = () => addRow();
 
 function updateHint() {
-  const n = document.querySelectorAll("#rows .bad").length;
-  $("hint").textContent = n ? `Красным выделено непонятных названий: ${n}. Нажмите и переименуйте.` : "";
+  const n = document.querySelectorAll("#rows .item.bad").length;
+  $("hint").textContent = n ? "Красным выделено непонятных названий: " + n + ". Нажмите и переименуйте." : "";
 }
 
 $("save").onclick = async () => {
-  const items = [...document.querySelectorAll("#rows .row")].map((r) => ({
+  const items = [...document.querySelectorAll("#rows .item")].map((r) => ({
     raw: r.dataset.raw,
     name: r.querySelector(".name").value,
     price: r.querySelector(".price").value,
   }));
-  if (document.querySelector("#rows .bad") && !confirm("Остались непонятные названия. Сохранить всё равно?")) return;
-  const r = await fetch("/api/items", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ store: $("store").value, items }),
-  });
-  const j = await r.json();
-  say(`✅ Сохранено товаров: ${j.saved}`);
-  $("review").classList.add("hidden");
-  $("rows").textContent = "";
+  if (!items.length) return;
+  if (document.querySelector("#rows .item.bad") && !confirm("Остались непонятные названия. Сохранить всё равно?")) return;
+  try {
+    const r = await fetch("/api/items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ store: $("store").value, items }),
+    });
+    const j = await r.json();
+    say("✅ Сохранено товаров: " + j.saved);
+    $("review").classList.add("hidden");
+    $("rows").textContent = "";
+    window.scrollTo(0, 0);
+  } catch (err) {
+    say("❌ " + err.message, true);
+  }
 };
 
 // ---- сравнение цен ----
@@ -201,12 +261,13 @@ async function loadList() {
   const keys = Object.keys(groups).sort();
   if (!keys.length) {
     const d = document.createElement("div");
-    d.className = "card small"; d.textContent = "Пока пусто. Отсканируйте первый чек.";
+    d.className = "empty"; d.textContent = "Пока пусто. Отсканируйте первый чек 📷";
     box.appendChild(d);
+    return;
   }
   keys.forEach((k) => {
-    const g = groups[k];
-    const min = Math.min(...g.map((x) => x.price));
+    const g = groups[k].sort((a, b) => a.price - b.price);
+    const min = g[0].price;
     const card = document.createElement("div");
     card.className = "card grp";
     const h = document.createElement("h3");
@@ -215,11 +276,23 @@ async function loadList() {
     g.forEach((x) => {
       const line = document.createElement("div");
       line.className = "line" + (x.price === min ? " best" : "");
-      const a = document.createElement("span");
-      a.textContent = x.store + " · " + (x.created || "").slice(0, 10);
-      const b = document.createElement("span");
-      b.textContent = x.price.toFixed(2) + " ₽" + (x.price === min ? " ★" : "");
-      line.append(a, b);
+      const who = document.createElement("div");
+      who.className = "who";
+      who.textContent = x.store;
+      const small = document.createElement("small");
+      small.textContent = (x.created || "").slice(0, 10);
+      who.appendChild(small);
+      const pr = document.createElement("div");
+      pr.className = "pr";
+      pr.textContent = x.price.toFixed(2) + " ₽" + (x.price === min ? " ★" : "");
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "del"; del.textContent = "🗑";
+      del.onclick = async () => {
+        if (!confirm("Удалить эту запись?")) return;
+        await fetch("/api/items/" + x.id, { method: "DELETE" });
+        loadList();
+      };
+      line.append(who, pr, del);
       card.appendChild(line);
     });
     box.appendChild(card);
