@@ -1,5 +1,6 @@
 import difflib
 import re
+from datetime import date
 
 from flask import jsonify, render_template, request
 
@@ -9,8 +10,22 @@ with db() as c:
     cols = [r[1] for r in c.execute("PRAGMA table_info(items)")]
     if "unit" not in cols:
         c.execute("ALTER TABLE items ADD COLUMN unit TEXT DEFAULT 'шт'")
+    if "bought" not in cols:
+        c.execute("ALTER TABLE items ADD COLUMN bought TEXT")
 
 UNIT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(кг|гр|г|мл|л)(?![а-яё])", re.I)
+DATE_RE = re.compile(r"(?<!\d)(\d{2})[.\-/](\d{2})[.\-/](\d{4}|\d{2})(?!\d)")
+ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def find_date(text):
+    for m in DATE_RE.finditer(text):
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000
+        if 1 <= mo <= 12 and 1 <= d <= 31 and 2000 <= y <= date.today().year + 1:
+            return "%04d-%02d-%02d" % (y, mo, d)
+    return None
 
 
 def find_store(text):
@@ -50,7 +65,7 @@ def per_unit(name, price, unit):
 
 def index2():
     html = render_template("index.html").split("</html>")[0].rsplit("</body>", 1)[0]
-    return html + '<script src="/static/extra.js?v=4"></script></body></html>'
+    return html + '<script src="/static/extra.js?v=5"></script></body></html>'
 
 
 orig_ocr = app.view_functions["ocr"]
@@ -62,6 +77,7 @@ def ocr2():
         return resp
     j = resp.get_json()
     j["store"] = find_store(j.get("text", ""))
+    j["date"] = find_date(j.get("text", ""))
     for l in j.get("lines", []):
         q = l.get("qty") or 1
         l["unit"] = "шт" if abs(q - round(q)) < 0.01 else "кг"
@@ -71,6 +87,9 @@ def ocr2():
 def save2():
     d = request.get_json(force=True)
     store = (d.get("store") or "").strip() or "Без названия"
+    bought = d.get("date") or ""
+    if not ISO_RE.match(bought):
+        bought = date.today().isoformat()
     n = 0
     with db() as c:
         for it in d.get("items", []):
@@ -83,8 +102,8 @@ def save2():
             if not name:
                 continue
             unit = "кг" if it.get("unit") == "кг" else "шт"
-            c.execute("INSERT INTO items(store,name,price,unit) VALUES(?,?,?,?)",
-                      (store, name, price, unit))
+            c.execute("INSERT INTO items(store,name,price,unit,bought) VALUES(?,?,?,?,?)",
+                      (store, name, price, unit, bought))
             if raw and raw != name.lower():
                 c.execute("INSERT OR REPLACE INTO aliases(raw,fixed) VALUES(?,?)", (raw, name))
             n += 1
@@ -94,8 +113,10 @@ def save2():
 def list2():
     q = (request.args.get("q") or "").strip().lower()
     with db() as c:
-        rows = c.execute("SELECT id,store,name,price,unit,created FROM items "
-                         "ORDER BY id DESC LIMIT 1000").fetchall()
+        rows = c.execute(
+            "SELECT id,store,name,price,unit,"
+            "COALESCE(bought,substr(created,1,10)) AS bought FROM items "
+            "ORDER BY bought DESC, id DESC LIMIT 1500").fetchall()
     out = []
     for r in rows:
         d = dict(r)
