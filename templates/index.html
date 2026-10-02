@@ -1,1 +1,236 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2e7d32">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Цены в магазинах</title>
+<style>
+  :root { --g:#2e7d32; --bg:#f4f6f4; --card:#fff; --red:#d32f2f; --tx:#1c1c1c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#121412; --card:#1e221e; --tx:#eee; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--tx);
+         padding-bottom:env(safe-area-inset-bottom); }
+  header { background:var(--g); color:#fff; padding:calc(14px + env(safe-area-inset-top)) 16px 14px;
+           font-size:20px; font-weight:600; }
+  nav { display:flex; background:var(--card); position:sticky; top:0; box-shadow:0 1px 4px #0002; }
+  nav button { flex:1; padding:14px; border:0; background:none; color:var(--tx); font-size:16px;
+               border-bottom:3px solid transparent; }
+  nav button.on { border-color:var(--g); color:var(--g); font-weight:600; }
+  main { padding:12px; max-width:640px; margin:auto; }
+  .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px;
+          box-shadow:0 1px 4px #0002; }
+  input[type=text], input[type=number], input[type=search] {
+    width:100%; padding:12px; font-size:16px; border:1px solid #8886; border-radius:10px;
+    background:transparent; color:var(--tx); }
+  .btn { display:block; width:100%; padding:14px; margin-top:10px; border:0; border-radius:12px;
+         background:var(--g); color:#fff; font-size:17px; font-weight:600; }
+  .btn.alt { background:#607d8b; }
+  .row { display:flex; gap:8px; margin-bottom:8px; align-items:center; }
+  .row .name { flex:2; } .row .price { flex:1; }
+  .row .x { border:0; background:none; font-size:22px; color:var(--red); padding:4px 8px; }
+  .bad { border:2px solid var(--red) !important; background:#d32f2f18 !important; }
+  .hint { color:var(--red); font-size:13px; margin:4px 0 10px; }
+  .msg { padding:10px; border-radius:10px; margin:8px 0; background:#2e7d3222; }
+  .msg.err { background:#d32f2f22; }
+  .grp h3 { margin:0 0 6px; font-size:17px; }
+  .grp .line { display:flex; justify-content:space-between; padding:3px 0; font-size:15px; }
+  .grp .best { color:var(--g); font-weight:700; }
+  .hidden { display:none; }
+  .small { font-size:13px; opacity:.7; }
+</style>
+</head>
+<body>
+<header>🛒 Цены в магазинах</header>
+<nav>
+  <button id="t1" class="on">Сканировать чек</button>
+  <button id="t2">Сравнение цен</button>
+</nav>
 
+<main>
+  <section id="p1">
+    <div class="card">
+      <input type="text" id="store" placeholder="Название магазина (например, «У Ивановны»)">
+      <input type="file" id="file" accept="image/*" capture="environment" class="hidden">
+      <button class="btn" id="cam">📷 Сфотографировать чек</button>
+      <button class="btn alt" id="pick">🖼 Выбрать фото из галереи</button>
+      <div id="status"></div>
+    </div>
+
+    <div class="card hidden" id="review">
+      <b>Распознанные товары</b>
+      <div class="hint" id="hint"></div>
+      <div id="rows"></div>
+      <button class="btn alt" id="add">+ Добавить строку</button>
+      <button class="btn" id="save">💾 Сохранить в базу</button>
+    </div>
+  </section>
+
+  <section id="p2" class="hidden">
+    <div class="card"><input type="search" id="q" placeholder="Поиск товара…"></div>
+    <div id="list"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// ---- вкладки ----
+function tab(n) {
+  $("p1").classList.toggle("hidden", n !== 1);
+  $("p2").classList.toggle("hidden", n !== 2);
+  $("t1").classList.toggle("on", n === 1);
+  $("t2").classList.toggle("on", n === 2);
+  if (n === 2) loadList();
+}
+$("t1").onclick = () => tab(1);
+$("t2").onclick = () => tab(2);
+
+// ---- сообщения ----
+function say(text, err) {
+  const s = $("status");
+  s.textContent = "";
+  if (!text) return;
+  const d = document.createElement("div");
+  d.className = "msg" + (err ? " err" : "");
+  d.textContent = text;
+  s.appendChild(d);
+}
+
+// ---- фото -> сжатие (бесплатный OCR принимает файлы до ~1 МБ) ----
+function compress(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 1600;
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error("Не удалось сжать фото"))), "image/jpeg", 0.7);
+    };
+    img.onerror = () => reject(new Error("Не удалось открыть фото"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+$("cam").onclick = () => { $("file").setAttribute("capture", "environment"); $("file").click(); };
+$("pick").onclick = () => { $("file").removeAttribute("capture"); $("file").click(); };
+
+$("file").onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  say("⏳ Распознаю чек… (может занять до минуты)");
+  try {
+    const blob = await compress(f);
+    const fd = new FormData();
+    fd.append("image", blob, "receipt.jpg");
+    const r = await fetch("/api/ocr", { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "Ошибка");
+    $("rows").textContent = "";
+    j.lines.forEach(addRow);
+    $("review").classList.remove("hidden");
+    updateHint();
+    say(j.lines.length ? `Найдено строк: ${j.lines.length}` : "Не нашли строки с ценами. Добавьте вручную или переснимите.", !j.lines.length);
+  } catch (err) {
+    say("❌ " + err.message, true);
+  }
+  e.target.value = "";
+};
+
+// ---- редактирование строк ----
+function addRow(it) {
+  it = it || { raw: "", name: "", price: "", suspicious: false };
+  const row = document.createElement("div");
+  row.className = "row";
+  row.dataset.raw = it.raw || "";
+  const name = document.createElement("input");
+  name.type = "text"; name.className = "name"; name.value = it.name || "";
+  name.placeholder = "Название";
+  const price = document.createElement("input");
+  price.type = "number"; price.step = "0.01"; price.className = "price";
+  price.value = it.price; price.placeholder = "Цена";
+  const x = document.createElement("button");
+  x.className = "x"; x.textContent = "✕";
+  x.onclick = () => { row.remove(); updateHint(); };
+  if (it.suspicious) name.classList.add("bad");
+  name.oninput = () => { name.classList.remove("bad"); updateHint(); };
+  row.append(name, price, x);
+  $("rows").appendChild(row);
+}
+$("add").onclick = () => addRow();
+
+function updateHint() {
+  const n = document.querySelectorAll("#rows .bad").length;
+  $("hint").textContent = n ? `Красным выделено непонятных названий: ${n}. Нажмите и переименуйте.` : "";
+}
+
+$("save").onclick = async () => {
+  const items = [...document.querySelectorAll("#rows .row")].map((r) => ({
+    raw: r.dataset.raw,
+    name: r.querySelector(".name").value,
+    price: r.querySelector(".price").value,
+  }));
+  if (document.querySelector("#rows .bad") && !confirm("Остались непонятные названия. Сохранить всё равно?")) return;
+  const r = await fetch("/api/items", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ store: $("store").value, items }),
+  });
+  const j = await r.json();
+  say(`✅ Сохранено товаров: ${j.saved}`);
+  $("review").classList.add("hidden");
+  $("rows").textContent = "";
+};
+
+// ---- сравнение цен ----
+async function loadList() {
+  const r = await fetch("/api/items?q=" + encodeURIComponent($("q").value));
+  const rows = await r.json();
+  const groups = {};
+  rows.forEach((x) => { (groups[x.name.toLowerCase()] ||= []).push(x); });
+  const box = $("list");
+  box.textContent = "";
+  const keys = Object.keys(groups).sort();
+  if (!keys.length) {
+    const d = document.createElement("div");
+    d.className = "card small"; d.textContent = "Пока пусто. Отсканируйте первый чек.";
+    box.appendChild(d);
+  }
+  keys.forEach((k) => {
+    const g = groups[k];
+    const min = Math.min(...g.map((x) => x.price));
+    const card = document.createElement("div");
+    card.className = "card grp";
+    const h = document.createElement("h3");
+    h.textContent = g[0].name;
+    card.appendChild(h);
+    g.forEach((x) => {
+      const line = document.createElement("div");
+      line.className = "line" + (x.price === min ? " best" : "");
+      const a = document.createElement("span");
+      a.textContent = x.store + " · " + (x.created || "").slice(0, 10);
+      const b = document.createElement("span");
+      b.textContent = x.price.toFixed(2) + " ₽" + (x.price === min ? " ★" : "");
+      line.append(a, b);
+      card.appendChild(line);
+    });
+    box.appendChild(card);
+  });
+}
+$("q").oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadList, 300); };
+
+// ---- PWA ----
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+}
+</script>
+</body>
+</html>
