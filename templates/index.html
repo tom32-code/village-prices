@@ -109,11 +109,8 @@ nav button span{font-size:24px}nav button.on{color:var(--g);font-weight:700}
 </div>
 <datalist id="dl-names"></datalist>
 <datalist id="dl-stores"></datalist>
-<script src="/static/core.js?v=6"></script>
-<script src="/static/scan.js?v=6"></script>
-<script src="/static/list.js?v=6"></script>
-</body>
-</html>
+
+<script>
 const $ = (id) => document.getElementById(id);
 const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
 const norm = (s) => String(s).toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/g, "");
@@ -128,6 +125,10 @@ function say(t, err) {
 }
 window.addEventListener("error", (e) => say("Ошибка: " + e.message, true));
 window.addEventListener("unhandledrejection", (e) => say("Ошибка: " + ((e.reason && e.reason.message) || e.reason), true));
+// защита от лишнего текста после </html>
+window.addEventListener("load", () => {
+  [...document.body.childNodes].forEach((n) => { if (n.nodeType === 3 && n.textContent.trim()) n.remove(); });
+});
 
 function tab(n) {
   $("p1").classList.toggle("hidden", n !== 1);
@@ -165,7 +166,8 @@ $("shot").onclick = () => {
   c.getContext("2d").drawImage(v, 0, 0);
   c.toBlob((b) => { closeCam(); scan(b); }, "image/jpeg", 0.92);
 };
-// конец core.js
+
+// ---- фото: определение наклона, выравнивание, серый тон, контраст, размер до ~1 МБ ----
 const loadImg = (f) => new Promise((res, rej) => {
   const i = new Image();
   i.onload = () => res(i);
@@ -173,6 +175,7 @@ const loadImg = (f) => new Promise((res, rej) => {
   i.src = URL.createObjectURL(f);
 });
 
+// чёрно-белая копия: тёмные пиксели (текст) чёрные
 function binCanvas(img, side) {
   const k = Math.min(1, side / Math.max(img.width, img.height));
   const w = Math.max(1, Math.round(img.width * k)), h = Math.max(1, Math.round(img.height * k));
@@ -191,7 +194,7 @@ function binCanvas(img, side) {
   x.putImageData(d, 0, 0);
   return c;
 }
-
+// угол, при котором строки текста лежат горизонтально (максимум "пиковости" строк)
 function bestAngle(bc, angles) {
   const w = bc.width, h = bc.height, D = Math.ceil(Math.hypot(w, h));
   const wc = document.createElement("canvas"); wc.width = D; wc.height = D;
@@ -211,7 +214,6 @@ function bestAngle(bc, angles) {
   }
   return best;
 }
-
 function estimateAngle(img) {
   const coarse = []; for (let a = -90; a < 90; a += 3) coarse.push(a);
   let a = bestAngle(binCanvas(img, 320), coarse);
@@ -264,6 +266,7 @@ async function ocr(blob) {
   return j;
 }
 
+// ---- оценка качества распознавания ----
 function stats(j) {
   const n = j.lines.length, bad = j.lines.filter((l) => l.suspicious).length;
   let d = null;
@@ -325,4 +328,148 @@ async function scan(file) {
   } catch (e) { say("❌ " + e.message, true); }
 }
 $("file").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) scan(f); });
-// конец scan.js
+
+// ---- проверка строк ----
+function addRow(it) {
+  it = it || { raw: "", name: "", price: "", unit: "шт" };
+  const row = el("div", "item" + (it.suspicious ? " bad" : it.known ? " ok" : ""));
+  row.dataset.raw = it.raw || ""; row.dataset.qty = it.qty || 1; row.dataset.unit = it.unit || "шт";
+  const name = el("input", "name"); name.type = "text"; name.placeholder = "Название товара";
+  name.setAttribute("list", "dl-names"); name.value = it.name || "";
+  name.oninput = () => { row.classList.remove("bad"); updateHint(); };
+  const price = el("input", "price"); price.type = "number"; price.step = "0.01";
+  price.inputMode = "decimal"; price.placeholder = "Цена"; price.value = it.price;
+  price.oninput = sumCheck;
+  const u = el("button", "unit"); u.type = "button";
+  const show = () => { u.textContent = "₽/" + row.dataset.unit; };
+  show();
+  u.onclick = () => { row.dataset.unit = row.dataset.unit === "кг" ? "шт" : "кг"; show(); };
+  const x = el("button", "x", "✕"); x.type = "button";
+  x.onclick = () => { row.remove(); updateHint(); };
+  const r1 = el("div", "row"), r2 = el("div", "row");
+  r1.append(name); r2.append(price, u, x);
+  row.append(r1, r2);
+  $("rows").appendChild(row);
+}
+$("add").onclick = () => { addRow(); updateHint(); };
+
+// сообщение о сумме показываем только если она не сошлась
+function sumCheck() {
+  const e = $("sum");
+  e.textContent = ""; e.className = "";
+  if (total == null) return;
+  let s = 0;
+  document.querySelectorAll("#rows .item").forEach((r) => {
+    s += (parseFloat(r.dataset.qty) || 1) * (parseFloat(r.querySelector(".price").value) || 0);
+  });
+  const d = Math.round((total - s) * 100) / 100;
+  if (Math.abs(d) < 0.05) return;
+  e.className = "msg err";
+  e.textContent = "⚠️ По строкам " + s.toFixed(2) + " ₽, в чеке " + total.toFixed(2) + " ₽. Разница " + d.toFixed(2) + " ₽. Проверьте цены.";
+}
+function updateHint() {
+  const n = document.querySelectorAll("#rows .item.bad").length;
+  $("hint").textContent = n ? "Красным выделено непонятных названий: " + n + ". Нажмите и переименуйте." : "";
+  sumCheck();
+}
+
+async function loadNames() {
+  try {
+    const j = await (await fetch("/api/names")).json();
+    [["dl-names", j.names], ["dl-stores", j.stores]].forEach(([id, arr]) => {
+      const d = $(id); d.textContent = "";
+      arr.forEach((v) => { const o = el("option"); o.value = v; d.appendChild(o); });
+    });
+  } catch (e) {}
+}
+loadNames();
+
+$("save").onclick = async () => {
+  const store = $("store").value.trim();
+  if (!store) { say("Укажите название магазина", true); window.scrollTo(0, 0); $("store").focus(); return; }
+  const items = [...document.querySelectorAll("#rows .item")].map((r) => ({
+    raw: r.dataset.raw, unit: r.dataset.unit,
+    name: r.querySelector(".name").value, price: r.querySelector(".price").value }));
+  if (!items.length) return;
+  if (document.querySelector("#rows .item.bad") && !confirm("Остались непонятные названия. Сохранить всё равно?")) return;
+  try {
+    const j = await (await fetch("/api/items", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ store, date: $("date").value || today(), items }) })).json();
+    say("✅ Сохранено товаров: " + j.saved);
+    $("review").classList.add("hidden"); $("rows").textContent = "";
+    total = null; sumCheck(); loadNames(); $("date").value = today(); window.scrollTo(0, 0);
+  } catch (e) { say("❌ " + e.message, true); }
+};
+
+// ---- сравнение цен: у каждого магазина свой цвет ----
+const PAL = ["#1e88e5", "#fb8c00", "#8e24aa", "#00acc1", "#d81b60", "#6d4c41", "#3949ab", "#546e7a"];
+let onlyStore = null;
+
+async function loadList() {
+  const all = await (await fetch("/api/items?q=")).json();
+  // цвет магазина по порядку появления: не меняется при поиске
+  const first = {};
+  all.forEach((x) => { if (first[x.store] === undefined || x.id < first[x.store]) first[x.store] = x.id; });
+  const colors = {};
+  Object.keys(first).sort((a, b) => first[a] - first[b]).forEach((s, i) => { colors[s] = PAL[i % PAL.length]; });
+  if (onlyStore && !colors[onlyStore]) onlyStore = null;
+
+  const lg = $("legend"); lg.textContent = "";
+  Object.keys(colors).forEach((s) => {
+    const b = el("button", "chip" + (onlyStore === s ? " on" : ""), s); b.type = "button";
+    b.style.setProperty("--c", colors[s]);
+    b.onclick = () => { onlyStore = onlyStore === s ? null : s; loadList(); };
+    lg.appendChild(b);
+  });
+
+  const qn = norm($("q").value);
+  const rows = all.filter((x) => !qn || norm(x.name).includes(qn));
+  const g = {};
+  rows.forEach((x) => { (g[norm(x.name)] ||= []).push(x); });
+  let cards = Object.values(g).map((arr) => {
+    const latest = {};
+    arr.forEach((x) => { if (!latest[x.store]) latest[x.store] = x; }); // новее по дате идут первыми
+    const L = Object.values(latest);
+    const cmp = L.every((x) => x.ppu) && new Set(L.map((x) => x.pu)).size === 1;
+    const v = (x) => (cmp ? x.ppu : x.price);
+    L.sort((a, b) => v(a) - v(b));
+    if (L.length > 1) L[0].best = true;
+    return { L, cmp, v };
+  });
+  if (onlyStore) cards = cards.filter((c) => c.L.some((x) => x.store === onlyStore));
+  cards.sort((a, b) => (b.L.length > 1) - (a.L.length > 1) || a.L[0].name.localeCompare(b.L[0].name, "ru"));
+
+  const box = $("list"); box.textContent = "";
+  if (!cards.length) { box.appendChild(el("div", "empty", onlyStore ? "У этого магазина пока нет товаров" : "Пока пусто. Отсканируйте первый чек 📷")); return; }
+  cards.forEach(({ L, cmp, v }) => {
+    const card = el("div", "card grp");
+    card.appendChild(el("h3", "", L[0].name));
+    L.forEach((x) => {
+      const line = el("div", "line" + (x.best ? " best" : "") + (onlyStore && x.store !== onlyStore ? " dim" : ""));
+      line.style.borderLeftColor = colors[x.store];
+      const who = el("div", "who");
+      const st = el("span", "st", x.store); st.style.color = colors[x.store];
+      who.append(st, el("small", "", fmt(x.bought)));
+      const pr = el("div", "pr", x.price.toFixed(2) + " ₽/" + x.unit + (x.best ? " ★" : ""));
+      if (x.ppu && x.unit === "шт") pr.appendChild(el("small", "", "≈ " + x.ppu.toFixed(2) + " ₽/" + x.pu));
+      const del = el("button", "del", "🗑"); del.type = "button";
+      del.onclick = async () => {
+        if (!confirm("Удалить эту запись?")) return;
+        await fetch("/api/items/" + x.id, { method: "DELETE" }); loadList();
+      };
+      line.append(who, pr, del); card.appendChild(line);
+    });
+    if (L.length > 1) {
+      const a = v(L[0]), b = v(L[L.length - 1]);
+      card.appendChild(el("div", "note", "Дешевле на " + (b - a).toFixed(2) + " ₽" + (cmp ? "/" + L[0].pu : "") +
+        " (" + Math.round((b - a) / b * 100) + "%)"));
+    }
+    box.appendChild(card);
+  });
+}
+$("q").oninput = () => { clearTimeout(window._t); window._t = setTimeout(loadList, 300); };
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+</script>
+</body>
+</html>
