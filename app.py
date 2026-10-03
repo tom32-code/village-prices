@@ -3,6 +3,7 @@ import io
 import os
 import re
 import sqlite3
+from datetime import date
 
 import requests
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory
@@ -18,10 +19,12 @@ VAGUE = {"продукты", "продукт", "товар", "товары", "б
 SKIP_WORDS = ("итог", "сдача", "налич", "ндс", "карта", "картой", "сумма", "скидк",
               "касс", "чек", "оплата", "всего", "электрон", "получен")
 STOP_WORDS = ("итог", "электрон", "получено", "картой", "наличными")
-
 ITEM_START = re.compile(r"^\s*(\d{1,3})\s*([.)\-])\s*(?=[^\W\d_])")
 QTY_X = re.compile(r"(\d*[.,]?\d{3})\s*[xXхХ×]\s*(\d+[.,]\d{1,2})(?:\s*=\s*(\d+[.,]\d{1,2}))?")
 SIMPLE_RE = re.compile(r"^(.*?)[\s.\-–—:=*]*(\d{1,5}[.,]\d{2})\s*(?:[рР₽]|руб\.?)?\s*$")
+UNIT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(кг|гр|г|мл|л)(?![а-яё])", re.I)
+DATE_RE = re.compile(r"(?<!\d)(\d{2})[.\-/](\d{2})[.\-/](\d{4}|\d{2})(?!\d)")
+ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def db():
@@ -35,14 +38,16 @@ def init_db():
         c.executescript("""
         CREATE TABLE IF NOT EXISTS items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            store TEXT NOT NULL,
-            name TEXT NOT NULL,
-            price REAL NOT NULL,
+            store TEXT NOT NULL, name TEXT NOT NULL, price REAL NOT NULL,
+            unit TEXT DEFAULT 'шт', bought TEXT,
             created TEXT DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE IF NOT EXISTS aliases(
-            raw TEXT PRIMARY KEY,
-            fixed TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS aliases(raw TEXT PRIMARY KEY, fixed TEXT NOT NULL);
         """)
+        cols = [r[1] for r in c.execute("PRAGMA table_info(items)")]
+        if "unit" not in cols:
+            c.execute("ALTER TABLE items ADD COLUMN unit TEXT DEFAULT 'шт'")
+        if "bought" not in cols:
+            c.execute("ALTER TABLE items ADD COLUMN bought TEXT")
 
 
 init_db()
@@ -70,7 +75,10 @@ def clean_name(s):
     if starts:
         s = s[starts[-1].end():]
     s = re.sub(r"^\s*\d+[.,]\d{2}\s+", "", s)
-    return re.sub(r"\s+", " ", s).strip(" .,:;-–—=_*\\/|")
+    s = re.sub(r"\s+", " ", s).strip(" .,:;-–—=_*\\/|()")
+    for _ in range(2):  # оптовая фасовка вида "\25шт"
+        s = re.sub(r"[\s\\/|:]+\d{1,3}\s*шт\.?$", "", s).strip(" .,:;-–—=_*\\/|()")
+    return s
 
 
 def known_names():
@@ -83,6 +91,49 @@ def known_names():
 def find_total(text):
     m = re.search(r"итог[^\d\n]{0,15}(\d{2,}[.,]\d{2})", text, re.I)
     return to_float(m.group(1)) if m else None
+
+
+def find_date(text):
+    for m in DATE_RE.finditer(text):
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000
+        if 1 <= mo <= 12 and 1 <= d <= 31 and 2000 <= y <= date.today().year + 1:
+            return "%04d-%02d-%02d" % (y, mo, d)
+    return None
+
+
+def find_store(text):
+    lines = [l.strip() for l in text.replace("\r", "").split("\n") if l.strip()][:8]
+    for l in lines:
+        m = re.search(r'["«“„]([^"«»“”„]{3,40})["»”“]', l)
+        if m:
+            name = m.group(1).strip()
+            break
+    else:
+        return None
+    with db() as c:
+        stores = [r[0] for r in c.execute("SELECT DISTINCT store FROM items")]
+    near = difflib.get_close_matches(name, stores, 1, 0.75)
+    return near[0] if near else name
+
+
+def per_unit(name, price, unit):
+    if unit == "кг":
+        return price, "кг"
+    m = UNIT_RE.search(name)
+    if not m:
+        return None, None
+    n, u = to_float(m.group(1)), m.group(2).lower()
+    if n <= 0:
+        return None, None
+    if u in ("гр", "г"):
+        return round(price / (n / 1000), 2), "кг"
+    if u == "кг":
+        return round(price / n, 2), "кг"
+    if u == "мл":
+        return round(price / (n / 1000), 2), "л"
+    return round(price / n, 2), "л"
 
 
 def parse_numbered(text):
@@ -107,11 +158,10 @@ def parse_numbered(text):
             if t:
                 total, pos = t.group(1), pos + t.end()
         price = to_float(m.group(2))
-        total = to_float(total) if total else None
-        qty = round(total / price, 3) if total and price else (to_float(m.group(1)) or 1.0)
+        qty = round(to_float(total) / price, 3) if total and price else (to_float(m.group(1)) or 1.0)
         name = clean_name(head)
         if name and price > 0:
-            out.append((name, price, bool(re.search(r"ТОВАР(?=[а-яё])", head)), qty, total))
+            out.append((name, price, bool(re.search(r"ТОВАР(?=[а-яё])", head)), qty))
     return out
 
 
@@ -122,11 +172,8 @@ def parse_simple(text):
         if not line or any(w in line.lower() for w in SKIP_WORDS):
             continue
         m = SIMPLE_RE.match(line)
-        if not m:
-            continue
-        raw = m.group(1).strip(" .-–—:*")
-        if raw:
-            out.append((raw, to_float(m.group(2))))
+        if m and m.group(1).strip(" .-–—:*"):
+            out.append((m.group(1).strip(" .-–—:*"), to_float(m.group(2))))
     return out
 
 
@@ -134,9 +181,9 @@ def parse_receipt(text):
     with db() as c:
         aliases = {r["raw"]: r["fixed"] for r in c.execute("SELECT * FROM aliases")}
     low = {k.lower(): k for k in known_names()}
-    rows = parse_numbered(text) or [(n, p, False, 1.0, p) for n, p in parse_simple(text)]
+    rows = parse_numbered(text) or [(n, p, False, 1.0) for n, p in parse_simple(text)]
     out = []
-    for raw, price, bad, qty, total in rows:
+    for raw, price, bad, qty in rows:
         key, name, sure = raw.lower(), raw, False
         if key in aliases:
             name, sure = aliases[key], True
@@ -145,6 +192,7 @@ def parse_receipt(text):
             if near:
                 name, sure = low[near[0]], True
         out.append({"raw": raw, "name": name, "price": price, "qty": qty, "known": sure,
+                    "unit": "шт" if abs(qty - round(qty)) < 0.01 else "кг",
                     "suspicious": (not sure) and (bad or is_suspicious(raw))})
     return out
 
@@ -207,7 +255,8 @@ def ocr():
         msg = msg[0] if isinstance(msg, list) and msg else (msg or "Ошибка OCR")
         return jsonify(error=str(msg)), 502
     text = "\n".join(p.get("ParsedText", "") for p in j.get("ParsedResults", []))
-    return jsonify(lines=parse_receipt(text), text=text, total=find_total(text))
+    return jsonify(lines=parse_receipt(text), total=find_total(text),
+                   store=find_store(text), date=find_date(text))
 
 
 @app.get("/api/names")
@@ -219,11 +268,14 @@ def api_names():
 
 @app.post("/api/items")
 def save_items():
-    data = request.get_json(force=True)
-    store = (data.get("store") or "").strip() or "Без названия"
+    d = request.get_json(force=True)
+    store = (d.get("store") or "").strip() or "Без названия"
+    bought = d.get("date") or ""
+    if not ISO_RE.match(bought):
+        bought = date.today().isoformat()
     n = 0
     with db() as c:
-        for it in data.get("items", []):
+        for it in d.get("items", []):
             name = (it.get("name") or "").strip()
             raw = (it.get("raw") or "").strip().lower()
             try:
@@ -232,7 +284,9 @@ def save_items():
                 continue
             if not name:
                 continue
-            c.execute("INSERT INTO items(store,name,price) VALUES(?,?,?)", (store, name, price))
+            unit = "кг" if it.get("unit") == "кг" else "шт"
+            c.execute("INSERT INTO items(store,name,price,unit,bought) VALUES(?,?,?,?,?)",
+                      (store, name, price, unit, bought))
             if raw and raw != name.lower():
                 c.execute("INSERT OR REPLACE INTO aliases(raw,fixed) VALUES(?,?)", (raw, name))
             n += 1
@@ -243,9 +297,16 @@ def save_items():
 def list_items():
     q = (request.args.get("q") or "").strip().lower()
     with db() as c:
-        rows = c.execute("SELECT id,store,name,price,created FROM items ORDER BY id DESC LIMIT 1000").fetchall()
-    rows = [dict(r) for r in rows if q in r["name"].lower()]
-    return jsonify(rows)
+        rows = c.execute(
+            "SELECT id,store,name,price,unit,COALESCE(bought,substr(created,1,10)) AS bought "
+            "FROM items ORDER BY bought DESC, id DESC LIMIT 1500").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if q in d["name"].lower():
+            d["ppu"], d["pu"] = per_unit(d["name"], d["price"], d["unit"])
+            out.append(d)
+    return jsonify(out)
 
 
 @app.delete("/api/items/<int:item_id>")
