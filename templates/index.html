@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#2e7d32">
+<meta name="google" content="notranslate">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Цены в магазинах</title>
+<style>
+:root{--g:#2e7d32;--bg:#f1f4f1;--card:#fff;--red:#d32f2f;--tx:#1c1c1c;--mut:#6b6b6b}
+@media(prefers-color-scheme:dark){:root{--bg:#0f120f;--card:#1c211c;--tx:#eee;--mut:#a0a8a0}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx);padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+header{background:var(--g);color:#fff;padding:calc(14px + env(safe-area-inset-top)) 16px 14px;font-size:20px;font-weight:700}
+main{padding:12px;max-width:640px;margin:auto}
+.card{background:var(--card);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 1px 5px #0002}
+.card h2{margin:0 0 10px;font-size:18px}
+input[type=text],input[type=number],input[type=search],input[type=date]{width:100%;height:50px;padding:0 14px;font-size:16px;border:1.5px solid #8885;border-radius:12px;background:transparent;color:var(--tx);outline:none;margin-top:8px}
+input:focus{border-color:var(--g)}
+.btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;margin-top:10px;border:0;border-radius:14px;background:var(--g);color:#fff;font-size:17px;font-weight:600;padding:10px}
+.btn.alt{background:#546e7a}.btn.ghost{background:var(--card);color:var(--g);border:2px solid var(--g)}
+.pick{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.item{border:1.5px solid #8884;border-radius:14px;padding:8px;margin-bottom:8px}
+.item.ok{border-color:var(--g)}.item.bad{border-color:var(--red);background:#d32f2f14}
+.item .row{display:flex;gap:6px;align-items:center}.item .row+.row{margin-top:6px}
+.item input{margin:0;flex:1;min-width:0;height:46px}
+.unit{padding:0 8px;height:46px;min-width:66px;border:1.5px solid #8885;border-radius:10px;background:none;color:var(--tx);font-size:15px}
+.x{width:46px;height:46px;border:0;border-radius:12px;background:#d32f2f22;color:var(--red);font-size:20px;flex:none}
+.hint{color:var(--red);font-size:14px;margin:0 0 8px}
+.msg{padding:12px;border-radius:12px;margin:10px 0;background:#2e7d3226;font-size:15px}.msg.err{background:#d32f2f26}
+.savebar{position:sticky;bottom:calc(70px + env(safe-area-inset-bottom));display:flex;gap:8px;background:var(--card);padding:8px 0 2px}
+.savebar .btn{margin:0}.savebar .btn.ghost{flex:.7}.savebar .btn:last-child{flex:1}
+.chips{display:flex;flex-wrap:wrap}
+.chip{border:2px solid var(--c);color:var(--c);background:transparent;border-radius:20px;padding:6px 12px;font-size:14px;margin:0 6px 6px 0}
+.chip.on{background:var(--c);color:#fff}
+.line{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0 8px 10px;border-top:1px solid #8883;border-left:5px solid #8885}
+.line.dim{opacity:.5}
+.line .who{flex:1}.line .st{font-weight:700}
+.line small{display:block;color:var(--mut);font-size:12px;font-weight:400}
+.line .pr{font-weight:600;text-align:right;white-space:nowrap}.line.best .pr{color:var(--g)}
+.del{border:0;background:none;color:var(--mut);font-size:18px;padding:6px 10px}
+.grp h3{margin:0 0 6px;font-size:18px}.note{font-size:13px;color:var(--mut);margin-top:6px}
+.empty{text-align:center;color:var(--mut);padding:24px 10px}
+.hidden{display:none!important}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);box-shadow:0 -2px 8px #0003;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{flex:1;height:64px;border:0;background:none;color:var(--mut);font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+nav button span{font-size:24px}nav button.on{color:var(--g);font-weight:700}
+#cam{position:fixed;inset:0;background:#000;z-index:20;display:flex;flex-direction:column}
+#cam .vw{position:relative;flex:1;min-height:0;display:flex}
+#cam video{flex:1;min-width:0;object-fit:contain}
+#cam .guide{position:absolute;left:18%;right:18%;top:6%;bottom:6%;border:2px dashed #ffffffaa;border-radius:10px;pointer-events:none}
+#cam .tip{position:absolute;top:10px;left:0;right:0;text-align:center;color:#fff;font-size:14px;text-shadow:0 1px 3px #000;pointer-events:none}
+#cam .bar{display:flex;gap:10px;padding:14px 14px calc(14px + env(safe-area-inset-bottom))}
+#cam .btn{margin:0}
+</style>
+</head>
+<body>
+<header>🛒 Цены в магазинах</header>
+<main>
+<section id="p1">
+  <div class="card">
+    <h2>1. Магазин и дата</h2>
+    <input type="text" id="store" placeholder="Название магазина" autocomplete="off" list="dl-stores">
+    <input type="date" id="date">
+  </div>
+  <div class="card">
+    <h2>2. Чек</h2>
+    <button class="btn" id="cambtn" type="button">📷 Сфотографировать чек</button>
+    <label class="btn alt" for="file">🖼 Выбрать фото из галереи</label>
+    <input type="file" id="file" class="pick" accept="image/*">
+    <div id="status"></div>
+  </div>
+  <div class="card hidden" id="review">
+    <h2>3. Проверьте товары</h2>
+    <p class="hint" id="hint"></p>
+    <div id="sum"></div>
+    <div id="rows"></div>
+    <div class="savebar">
+      <button class="btn ghost" id="add" type="button">＋ Строка</button>
+      <button class="btn" id="save" type="button">💾 Сохранить</button>
+    </div>
+  </div>
+</section>
+<section id="p2" class="hidden">
+  <div class="card">
+    <input type="search" id="q" placeholder="🔍 Поиск товара…" style="margin:0 0 10px">
+    <div class="chips" id="legend"></div>
+  </div>
+  <div id="list"></div>
+</section>
+</main>
+<nav>
+  <button id="t1" class="on" type="button"><span>📷</span>Чек</button>
+  <button id="t2" type="button"><span>📊</span>Цены</button>
+</nav>
+<div id="cam" class="hidden">
+  <div class="vw">
+    <video id="vid" autoplay playsinline muted></video>
+    <div class="guide"></div>
+    <div class="tip">Чек целиком, телефон ровно над ним, без бликов</div>
+  </div>
+  <div class="bar">
+    <button class="btn alt" id="camx" type="button">Отмена</button>
+    <button class="btn" id="shot" type="button">📸 Снять</button>
+  </div>
+</div>
+<datalist id="dl-names"></datalist>
+<datalist id="dl-stores"></datalist>
+<script src="/static/core.js?v=6"></script>
+<script src="/static/scan.js?v=6"></script>
+<script src="/static/list.js?v=6"></script>
+</body>
+</html>
+const $ = (id) => document.getElementById(id);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+const norm = (s) => String(s).toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/g, "");
+const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const fmt = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.slice(8) + "." + d.slice(5, 7) + "." + d.slice(0, 4) : "";
+let total = null;
+$("date").value = today();
+
+function say(t, err) {
+  const s = $("status"); s.textContent = "";
+  if (t) s.appendChild(el("div", "msg" + (err ? " err" : ""), t));
+}
+window.addEventListener("error", (e) => say("Ошибка: " + e.message, true));
+window.addEventListener("unhandledrejection", (e) => say("Ошибка: " + ((e.reason && e.reason.message) || e.reason), true));
+
+function tab(n) {
+  $("p1").classList.toggle("hidden", n !== 1);
+  $("p2").classList.toggle("hidden", n !== 2);
+  $("t1").classList.toggle("on", n === 1);
+  $("t2").classList.toggle("on", n === 2);
+  window.scrollTo(0, 0);
+  if (n === 2) loadList();
+}
+$("t1").onclick = () => tab(1);
+$("t2").onclick = () => tab(2);
+
+// ---- камера внутри приложения ----
+let stream = null;
+async function openCam() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false });
+    $("vid").srcObject = stream;
+    $("cam").classList.remove("hidden");
+  } catch (e) {
+    say("Камера недоступна. Разрешите доступ к камере для сайта в настройках Chrome или выберите фото из галереи.", true);
+  }
+}
+function closeCam() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+  $("cam").classList.add("hidden");
+}
+$("cambtn").onclick = openCam;
+$("camx").onclick = closeCam;
+$("shot").onclick = () => {
+  const v = $("vid"), c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  c.toBlob((b) => { closeCam(); scan(b); }, "image/jpeg", 0.92);
+};
+// конец core.js
+const loadImg = (f) => new Promise((res, rej) => {
+  const i = new Image();
+  i.onload = () => res(i);
+  i.onerror = () => rej(new Error("Не удалось открыть фото"));
+  i.src = URL.createObjectURL(f);
+});
+
+function binCanvas(img, side) {
+  const k = Math.min(1, side / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * k)), h = Math.max(1, Math.round(img.height * k));
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d", { willReadFrequently: true });
+  x.drawImage(img, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h), p = d.data, g = new Uint8Array(w * h), hist = new Uint32Array(256);
+  for (let i = 0, j = 0; i < p.length; i += 4, j++) {
+    const v = (p[i] * 0.3 + p[i + 1] * 0.59 + p[i + 2] * 0.11) | 0; g[j] = v; hist[v]++;
+  }
+  let acc = 0, thr = 0; const lim = w * h * 0.06;
+  while (thr < 255 && (acc += hist[thr]) < lim) thr++;
+  for (let i = 0, j = 0; i < p.length; i += 4, j++) {
+    const v = g[j] <= thr ? 0 : 255; p[i] = p[i + 1] = p[i + 2] = v; p[i + 3] = 255;
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+
+function bestAngle(bc, angles) {
+  const w = bc.width, h = bc.height, D = Math.ceil(Math.hypot(w, h));
+  const wc = document.createElement("canvas"); wc.width = D; wc.height = D;
+  const x = wc.getContext("2d", { willReadFrequently: true });
+  let best = 0, bs = -1;
+  for (const a of angles) {
+    x.fillStyle = "#fff"; x.fillRect(0, 0, D, D);
+    x.save(); x.translate(D / 2, D / 2); x.rotate(a * Math.PI / 180); x.drawImage(bc, -w / 2, -h / 2); x.restore();
+    const p = x.getImageData(0, 0, D, D).data;
+    let s = 0;
+    for (let r = 0; r < D; r++) {
+      let c = 0; const o = r * D * 4;
+      for (let i = 0; i < D; i++) if (p[o + i * 4] < 128) c++;
+      s += c * c;
+    }
+    if (s > bs) { bs = s; best = a; }
+  }
+  return best;
+}
+
+function estimateAngle(img) {
+  const coarse = []; for (let a = -90; a < 90; a += 3) coarse.push(a);
+  let a = bestAngle(binCanvas(img, 320), coarse);
+  const fine = []; for (let d = -3; d <= 3; d += 0.5) fine.push(a + d);
+  a = bestAngle(binCanvas(img, 640), fine);
+  if (a > 90) a -= 180;
+  if (a < -90) a += 180;
+  return a;
+}
+
+async function render(img, deg) {
+  const rad = deg * Math.PI / 180, cs = Math.abs(Math.cos(rad)), sn = Math.abs(Math.sin(rad));
+  let max = 3000, q = 0.85;
+  for (let n = 0; n < 6; n++) {
+    const k = Math.min(1, max / Math.max(img.width, img.height));
+    const w = Math.round(img.width * k), h = Math.round(img.height * k);
+    const sw = Math.round(w * cs + h * sn), sh = Math.round(w * sn + h * cs);
+    const c = document.createElement("canvas"); c.width = sw; c.height = sh;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.fillStyle = "#fff"; x.fillRect(0, 0, sw, sh);
+    x.translate(sw / 2, sh / 2); x.rotate(rad);
+    x.drawImage(img, -w / 2, -h / 2, w, h);
+    const d = x.getImageData(0, 0, sw, sh), p = d.data, hist = new Uint32Array(256);
+    for (let i = 0; i < p.length; i += 4) {
+      const g = (p[i] * 0.3 + p[i + 1] * 0.59 + p[i + 2] * 0.11) | 0; p[i] = g; hist[g]++;
+    }
+    const tot = sw * sh;
+    let lo = 0, hi = 255, a = 0;
+    while (lo < 254 && (a += hist[lo]) < tot * 0.01) lo++;
+    a = 0;
+    while (hi > lo + 1 && (a += hist[hi]) < tot * 0.01) hi--;
+    const s = 255 / Math.max(1, hi - lo);
+    for (let i = 0; i < p.length; i += 4) {
+      const v = Math.max(0, Math.min(255, (p[i] - lo) * s)); p[i] = p[i + 1] = p[i + 2] = v;
+    }
+    x.putImageData(d, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", q));
+    if (blob && blob.size < 950000) return blob;
+    max = Math.round(max * 0.85); q = Math.max(0.5, q - 0.08);
+  }
+  throw new Error("Фото слишком большое, попробуйте переснять ближе");
+}
+
+async function ocr(blob) {
+  const fd = new FormData();
+  fd.append("image", blob, "receipt.jpg");
+  const r = await fetch("/api/ocr", { method: "POST", body: fd });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || "Ошибка сервера");
+  return j;
+}
+
+function stats(j) {
+  const n = j.lines.length, bad = j.lines.filter((l) => l.suspicious).length;
+  let d = null;
+  if (j.total != null) d = Math.abs(j.total - j.lines.reduce((s, l) => s + (l.qty || 1) * l.price, 0));
+  return { n, bad, d };
+}
+function quality(j) {
+  const { n, bad, d } = stats(j);
+  if (!n) return -1;
+  if (d != null && d < 0.05) return 1000 + n;
+  let s = n - 2 * bad;
+  if (d != null) s -= Math.min(d / j.total, 1) * 8;
+  return s;
+}
+function enough(j) {
+  const { n, bad, d } = stats(j);
+  if (d != null && d < 0.05) return true;
+  return n >= 5 && bad <= n * 0.25 && (d == null || d < j.total * 0.15);
+}
+
+async function scan(file) {
+  try {
+    const img = await loadImg(file);
+    say("⏳ Выравниваю фото…");
+    await new Promise((r) => setTimeout(r, 30));
+    let a = estimateAngle(img);
+    if (Math.abs(a) < 1.5) a = 0;
+    const tries = [a, a + 180];
+    if (a !== 0) tries.push(0);
+    let best = null, bq = -Infinity, lastErr = null;
+    for (let i = 0; i < tries.length; i++) {
+      say(i === 0 ? "⏳ Распознаю чек… (до минуты, если сервер просыпался)" : "⏳ Результат слабый, пробую другой поворот…");
+      try {
+        const j = await ocr(await render(img, tries[i]));
+        const s = quality(j);
+        if (s > bq) { best = j; bq = s; }
+        if (enough(j)) break;
+      } catch (e) { lastErr = e; }
+    }
+    if (!best && lastErr) throw lastErr;
+    if (!best || best.lines.length < 3) {
+      say("😕 Чек не распознан. Снимите ровно сверху, чтобы чек был целиком в кадре, при хорошем свете, без бликов и теней.", true);
+      return;
+    }
+    if (best.store) $("store").value = best.store;
+    if (best.date) $("date").value = best.date;
+    const have = new Set([...document.querySelectorAll("#rows .item")].map((r) =>
+      norm(r.querySelector(".name").value) + "|" + r.querySelector(".price").value));
+    let skipped = 0;
+    best.lines.forEach((it) => { if (have.has(norm(it.name) + "|" + it.price)) skipped++; else addRow(it); });
+    if (best.total != null) total = best.total;
+    $("review").classList.remove("hidden");
+    updateHint();
+    const { bad, d } = stats(best);
+    const miss = d != null && d >= 0.05;
+    say("Найдено: " + best.lines.length + (skipped ? ", повторов пропущено: " + skipped : "") +
+        (bad ? ", проверить: " + bad : "") + (miss ? ". Не хватает строк? Снимите следующую часть." : ""), miss || bad > best.lines.length / 2);
+    $("review").scrollIntoView({ behavior: "smooth" });
+  } catch (e) { say("❌ " + e.message, true); }
+}
+$("file").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) scan(f); });
+// конец scan.js
