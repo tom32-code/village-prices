@@ -1,0 +1,5 @@
+flask
+gunicorn
+requests
+pillow
+pg8000
